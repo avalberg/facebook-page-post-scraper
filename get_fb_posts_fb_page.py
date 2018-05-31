@@ -7,15 +7,13 @@ try:
 except ImportError:
     from urllib2 import urlopen, Request
 
-app_id = "<FILL IN>"
-app_secret = "<FILL IN>"  # DO NOT SHARE WITH ANYONE!
-page_id = "cnn"
+page_id = "" # needs to be the page ID for what you're scraping
 
 # input date formatted as YYYY-MM-DD
 since_date = ""
 until_date = ""
 
-access_token = app_id + "|" + app_secret
+access_token = "" # put your user access token here
 
 
 def request_until_succeed(url):
@@ -43,6 +41,9 @@ def unicode_decode(text):
     except UnicodeDecodeError:
         return text.encode('utf-8')
 
+# function to remove emojis from messages (was creating a UNICODE problem when writing to CSV)
+def BMP(s):
+    return "".join((i if ord(i) < 10000 else u"\uFFFD" for i in s))
 
 def getFacebookPageFeedUrl(base_url):
 
@@ -57,7 +58,7 @@ def getFacebookPageFeedUrl(base_url):
 
 def getReactionsForStatuses(base_url):
 
-    reaction_types = ['like', 'love', 'wow', 'haha', 'sad', 'angry']
+    reaction_types = ['like']
     reactions_dict = {}   # dict of {status_id: tuple<6>}
 
     for reaction_type in reaction_types:
@@ -95,7 +96,7 @@ def processFacebookPageFeedStatus(status):
     status_type = status['type']
 
     status_message = '' if 'message' not in status else \
-        unicode_decode(status['message'])
+        BMP(unicode_decode(status['message'])) # altered this to check for emojis when encoding/decoding
     link_name = '' if 'name' not in status else \
         unicode_decode(status['name'])
     status_link = '' if 'link' not in status else \
@@ -107,7 +108,7 @@ def processFacebookPageFeedStatus(status):
     status_published = datetime.datetime.strptime(
         status['created_time'], '%Y-%m-%dT%H:%M:%S+0000')
     status_published = status_published + \
-        datetime.timedelta(hours=-5)  # EST
+        datetime.timedelta(hours=-6)  # EST
     status_published = status_published.strftime(
         '%Y-%m-%d %H:%M:%S')  # best time format for spreadsheet programs
 
@@ -124,19 +125,17 @@ def processFacebookPageFeedStatus(status):
 
 
 def scrapeFacebookPageFeedStatus(page_id, access_token, since_date, until_date):
-    with open('{}_facebook_statuses.csv'.format(page_id), 'w') as file:
+    with open('{}_facebook_statuses.csv'.format(page_id), 'w', encoding='utf-8') as file:
         w = csv.writer(file)
         w.writerow(["status_id", "status_message", "link_name", "status_type",
                     "status_link", "status_published", "num_reactions",
-                    "num_comments", "num_shares", "num_likes", "num_loves",
-                    "num_wows", "num_hahas", "num_sads", "num_angrys",
-                    "num_special"])
+                    "num_comments", "num_shares", "num_likes"])
 
         has_next_page = True
         num_processed = 0
         scrape_starttime = datetime.datetime.now()
         after = ''
-        base = "https://graph.facebook.com/v2.9"
+        base = "https://graph.facebook.com/v3.0"
         node = "/{}/posts".format(page_id)
         parameters = "/?limit={}&access_token={}".format(100, access_token)
         since = "&since={}".format(since_date) if since_date \
@@ -157,13 +156,11 @@ def scrapeFacebookPageFeedStatus(page_id, access_token, since_date, until_date):
             for status in statuses['data']:
 
                 # Ensure it is a status with the expected metadata
+                # avalberg note - I was scraping pre-reaction data so I only needed likes, shares & comments.
                 if 'reactions' in status:
                     status_data = processFacebookPageFeedStatus(status)
                     reactions_data = reactions[status_data[0]]
-
-                    # calculate thankful/pride through algebra
-                    num_special = status_data[6] - sum(reactions_data)
-                    w.writerow(status_data + reactions_data + (num_special,))
+                    w.writerow(status_data + reactions_data)
 
                 num_processed += 1
                 if num_processed % 100 == 0:
